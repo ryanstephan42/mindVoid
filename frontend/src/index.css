@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+.void-bg {
+  background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%);
+  position: relative;
+}
+
+.void-bg::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+    radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
+    radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px);
+  background-size: 550px 550px, 350px 350px, 250px 250px;
+  background-position: 0 0, 40px 60px, 130px 270px;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.floating-inner {
+  animation: float 4s ease-in-out infinite;
+  display: inline-block;
+}
+
+.floating-inner-alt {
+  animation: float 5s ease-in-out infinite;
+  animation-delay: -1.5s;
+  display: inline-block;
+}
+
+.floating-inner-alt-2 {
+  animation: float 4.5s ease-in-out infinite;
+  animation-delay: -3s;
+  display: inline-block;
+}
+
+/* React Flow Customizations */
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node:active {
+  cursor: grabbing;
+}
+
+.react-flow__handle {
+  opacity: 0;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  bottom: auto !important;
+  right: auto !important;
+  pointer-events: none;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2.5;
+  stroke: #64748b;
+  opacity: 0.6;
+}
