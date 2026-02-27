@@ -36,6 +36,21 @@ class LinkModel(Base):
     source_id = Column(Integer, ForeignKey("thoughts.id"))
     target_id = Column(Integer, ForeignKey("thoughts.id"))
 
+class DrawingModel(Base):
+    __tablename__ = "drawings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False)  # 'rectangle', 'circle', 'triangle', 'line', 'arrow', 'text', 'freehand'
+    x = Column(Float, default=0.0)
+    y = Column(Float, default=0.0)
+    width = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    points = Column(String, nullable=True)  # JSON string for freehand or multi-point shapes
+    text = Column(String, nullable=True)
+    color = Column(String, default="#64748b")
+    stroke_width = Column(Float, default=2.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -79,6 +94,35 @@ class Link(LinkBase):
     class Config:
         from_attributes = True
 
+class DrawingBase(BaseModel):
+    type: str
+    x: float = 0.0
+    y: float = 0.0
+    width: Optional[float] = None
+    height: Optional[float] = None
+    points: Optional[str] = None
+    text: Optional[str] = None
+    color: str = "#64748b"
+    stroke_width: float = 2.0
+
+class DrawingUpdate(BaseModel):
+    type: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
+    points: Optional[str] = None
+    text: Optional[str] = None
+    color: Optional[str] = None
+    stroke_width: Optional[float] = None
+
+class Drawing(DrawingBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 # FastAPI app
 app = FastAPI()
 
@@ -99,6 +143,7 @@ def get_db():
     finally:
         db.close()
 
+# Thought Endpoints
 @app.post("/thoughts/", response_model=Thought)
 def create_thought(thought: ThoughtBase, db: Session = Depends(get_db)):
     db_thought = ThoughtModel(**thought.model_dump())
@@ -125,6 +170,22 @@ def update_thought(thought_id: int, thought_update: ThoughtUpdate, db: Session =
     db.refresh(db_thought)
     return db_thought
 
+@app.delete("/thoughts/{thought_id}")
+def delete_thought(thought_id: int, db: Session = Depends(get_db)):
+    db_thought = db.query(ThoughtModel).filter(ThoughtModel.id == thought_id).first()
+    if not db_thought:
+        raise HTTPException(status_code=404, detail="Thought not found")
+    
+    # Delete associated links
+    db.query(LinkModel).filter(
+        (LinkModel.source_id == thought_id) | (LinkModel.target_id == thought_id)
+    ).delete()
+    
+    db.delete(db_thought)
+    db.commit()
+    return {"message": "Thought deleted successfully"}
+
+# Link Endpoints
 @app.post("/links/", response_model=Link)
 def create_link(link: LinkBase, db: Session = Depends(get_db)):
     db_link = LinkModel(**link.model_dump())
@@ -146,17 +207,38 @@ def delete_link(link_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Link deleted successfully"}
 
-@app.delete("/thoughts/{thought_id}")
-def delete_thought(thought_id: int, db: Session = Depends(get_db)):
-    db_thought = db.query(ThoughtModel).filter(ThoughtModel.id == thought_id).first()
-    if not db_thought:
-        raise HTTPException(status_code=404, detail="Thought not found")
-    
-    # Delete associated links
-    db.query(LinkModel).filter(
-        (LinkModel.source_id == thought_id) | (LinkModel.target_id == thought_id)
-    ).delete()
-    
-    db.delete(db_thought)
+# Drawing Endpoints
+@app.post("/drawings/", response_model=Drawing)
+def create_drawing(drawing: DrawingBase, db: Session = Depends(get_db)):
+    db_drawing = DrawingModel(**drawing.model_dump())
+    db.add(db_drawing)
     db.commit()
-    return {"message": "Thought deleted successfully"}
+    db.refresh(db_drawing)
+    return db_drawing
+
+@app.get("/drawings/", response_model=List[Drawing])
+def read_drawings(db: Session = Depends(get_db)):
+    return db.query(DrawingModel).all()
+
+@app.put("/drawings/{drawing_id}", response_model=Drawing)
+def update_drawing(drawing_id: int, drawing_update: DrawingUpdate, db: Session = Depends(get_db)):
+    db_drawing = db.query(DrawingModel).filter(DrawingModel.id == drawing_id).first()
+    if not db_drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+    
+    update_data = drawing_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_drawing, key, value)
+    
+    db.commit()
+    db.refresh(db_drawing)
+    return db_drawing
+
+@app.delete("/drawings/{drawing_id}")
+def delete_drawing(drawing_id: int, db: Session = Depends(get_db)):
+    db_drawing = db.query(DrawingModel).filter(DrawingModel.id == drawing_id).first()
+    if not db_drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+    db.delete(db_drawing)
+    db.commit()
+    return {"message": "Drawing deleted successfully"}
