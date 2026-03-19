@@ -56,7 +56,7 @@ const ShapeNode = ({ id, data, selected }) => {
       case 'freehand':
         if (!points || points.length < 2) return null;
         const d = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
-        return <path d={d} {...commonProps} style={{ vectorEffect: 'none' }} />;
+        return <path d={d} {...commonProps} />;
       default:
         return null;
     }
@@ -78,6 +78,11 @@ const ShapeNode = ({ id, data, selected }) => {
           isVisible={selected} 
           lineClassName="border-blue-500" 
           handleClassName="h-2 w-2 bg-white border border-blue-500 rounded-sm"
+          onResizeStop={(event, params) => {
+            if (data.onResizeStop) {
+              data.onResizeStop(event, { id, ...params });
+            }
+          }}
         />
       )}
       

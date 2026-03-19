@@ -44,8 +44,15 @@ const VoidContent = () => {
   const [clipboardNode, setClipboardNode] = useState(null);
   const [drawingStart, setDrawingStart] = useState(null);
   const [currentDrawingNode, setCurrentDrawingNode] = useState(null);
+  const [isDrawExpanded, setIsDrawExpanded] = useState(false);
 
   const isDrawingMode = activeTool !== 'thought';
+
+  useEffect(() => {
+    if (isDrawingMode) {
+      setIsDrawExpanded(true);
+    }
+  }, [isDrawingMode]);
 
   const onNodesChange = useCallback(
     (changes) => {
@@ -93,10 +100,11 @@ const VoidContent = () => {
           needs_action: thought.needs_action,
           isDeleteMode: isDeleteMode,
           onToggleNeedsAction: onToggleNeedsAction,
-          is_locked: thought.is_locked
+          is_locked: thought.is_locked,
+          isDrawingMode: isDrawingMode
         },
         position: { x: thought.x_pos, y: thought.y_pos },
-        draggable: !thought.is_locked,
+        draggable: !isDrawingMode && !thought.is_locked,
         zIndex: 1,
         raw: thought
       }));
@@ -113,10 +121,11 @@ const VoidContent = () => {
           text: drawing.text,
           points: drawing.points ? JSON.parse(drawing.points) : [],
           isDrawingMode: isDrawingMode,
-          onTextChange: (id, newText) => handleUpdateShapeText(id, newText)
+          onTextChange: (id, newText) => handleUpdateShapeText(id, newText),
+          onResizeStop: handleNodeResizeStop
         },
         position: { x: drawing.x, y: drawing.y },
-        draggable: isDrawingMode,
+        draggable: isDrawingMode && activeTool === 'thought', // Only draggable if we are NOT in a specific drawing tool
         selectable: isDrawingMode,
         style: { width: drawing.width, height: drawing.height },
         zIndex: -1,
@@ -229,7 +238,7 @@ const VoidContent = () => {
     }
   }, [linkingState, edges, fetchData]);
 
-  const onNodeResizeStop = useCallback(async (event, { id, width, height }) => {
+  const handleNodeResizeStop = useCallback(async (event, { id, width, height }) => {
     try {
       const drawingId = id.split('-')[1];
       await axios.put(`${API_BASE_URL}/drawings/${drawingId}`, {
@@ -264,23 +273,45 @@ const VoidContent = () => {
   const onPaneMouseDown = useCallback((event) => {
     if (!isDrawingMode || activeTool === 'eraser') return;
     
-    // Check if we are clicking on a node - if so, don't start drawing
-    if (event.target.closest('.react-flow__node')) return;
+    // In drawing mode, only left click (0) or touch starts drawing
+    if (event.button !== undefined && event.button !== 0) return;
+    
+    // Check if we are in thought mode - if so, don't start drawing 
+    if (activeTool === 'thought') return;
+
+    // Prevent default behavior to stop panning/selection
+    if (event.preventDefault) event.preventDefault();
 
     const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
     setDrawingStart(position);
 
+    const commonPreviewData = { 
+      type: activeTool, 
+      color: '#ffffff', // Use white for preview
+      isDrawingMode: false 
+    };
+
     if (activeTool === 'freehand') {
       setCurrentDrawingNode({
         type: 'shape',
-        data: { type: 'freehand', points: [{ x: 0, y: 0 }], color: '#64748b' },
-        position: position
+        data: { ...commonPreviewData, points: [{ x: 0, y: 0 }] },
+        position: position,
+        zIndex: 1000,
+        style: { width: 1, height: 1, pointerEvents: 'none' }
+      });
+    } else {
+      setCurrentDrawingNode({
+        type: 'shape',
+        data: commonPreviewData,
+        position: position,
+        zIndex: 1000,
+        style: { width: 1, height: 1, pointerEvents: 'none' }
       });
     }
   }, [isDrawingMode, activeTool, screenToFlowPosition]);
 
   const onPaneMouseMove = useCallback((event) => {
-    if (!drawingStart || activeTool === 'eraser') return;
+    if (!drawingStart || !currentDrawingNode || activeTool === 'eraser') return;
 
     const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
 
@@ -290,7 +321,8 @@ const VoidContent = () => {
         const newPoint = { x: position.x - prev.position.x, y: position.y - prev.position.y };
         return {
           ...prev,
-          data: { ...prev.data, points: [...prev.data.points, newPoint] }
+          data: { ...prev.data, points: [...prev.data.points, newPoint] },
+          style: { width: 1, height: 1, pointerEvents: 'none' }
         };
       });
     } else {
@@ -299,18 +331,18 @@ const VoidContent = () => {
       
       const x = width < 0 ? position.x : drawingStart.x;
       const y = height < 0 ? position.y : drawingStart.y;
-      const absWidth = Math.abs(width);
-      const absHeight = Math.abs(height);
+      const absWidth = Math.max(2, Math.abs(width));
+      const absHeight = Math.max(2, Math.abs(height));
 
       setCurrentDrawingNode({
-        id: 'preview',
         type: 'shape',
-        data: { type: activeTool, color: '#64748b' },
+        data: { ...currentDrawingNode.data },
         position: { x, y },
-        style: { width: absWidth, height: absHeight }
+        style: { width: absWidth, height: absHeight, pointerEvents: 'none' },
+        zIndex: 1000
       });
     }
-  }, [drawingStart, activeTool, screenToFlowPosition]);
+  }, [drawingStart, currentDrawingNode, activeTool, screenToFlowPosition]);
 
   const onPaneMouseUp = useCallback(async () => {
     if (!drawingStart || !currentDrawingNode) {
@@ -320,14 +352,49 @@ const VoidContent = () => {
     }
 
     try {
+      let finalX = currentDrawingNode.position.x;
+      let finalY = currentDrawingNode.position.y;
+      let finalWidth = currentDrawingNode.style?.width || 100;
+      let finalHeight = currentDrawingNode.style?.height || 100;
+      let finalPoints = null;
+
+      if (activeTool === 'freehand' && currentDrawingNode.data.points) {
+        const pts = currentDrawingNode.data.points;
+        if (pts.length > 1) {
+          // Calculate bounding box for the freehand drawing
+          const minX = Math.min(...pts.map(p => p.x));
+          const minY = Math.min(...pts.map(p => p.y));
+          const maxX = Math.max(...pts.map(p => p.x));
+          const maxY = Math.max(...pts.map(p => p.y));
+          
+          finalWidth = Math.max(20, maxX - minX);
+          finalHeight = Math.max(20, maxY - minY);
+          
+          // Adjust points to be relative to the new bounding box top-left
+          finalPoints = JSON.stringify(pts.map(p => ({
+            x: p.x - minX,
+            y: p.y - minY
+          })));
+          
+          finalX += minX;
+          finalY += minY;
+        } else {
+          // Don't save if it's just a dot
+          setDrawingStart(null);
+          setCurrentDrawingNode(null);
+          return;
+        }
+      }
+
       const payload = {
         type: activeTool,
-        x: currentDrawingNode.position.x,
-        y: currentDrawingNode.position.y,
-        width: currentDrawingNode.style?.width || 100,
-        height: currentDrawingNode.style?.height || 100,
-        points: activeTool === 'freehand' ? JSON.stringify(currentDrawingNode.data.points) : null,
-        text: activeTool === 'text' ? 'Double click to edit' : null
+        x: finalX,
+        y: finalY,
+        width: finalWidth,
+        height: finalHeight,
+        points: finalPoints,
+        text: activeTool === 'text' ? 'Double click to edit' : null,
+        color: '#64748b'
       };
 
       await axios.post(`${API_BASE_URL}/drawings/`, payload);
@@ -439,7 +506,24 @@ const VoidContent = () => {
   };
 
   return (
-    <div className={`w-full h-full transition-colors duration-700 ${isDeleteMode ? 'bg-red-950/40' : ''} void-bg relative`}>
+    <div 
+      className={`w-full h-full transition-colors duration-700 ${isDeleteMode ? 'bg-red-950/40' : ''} ${isDrawingMode ? 'drawing-active' : ''} ${activeTool === 'eraser' ? 'eraser-active' : ''} ${isDeleteMode ? 'delete-active' : ''} void-bg relative`}
+      onMouseDown={(e) => {
+        if (!isDrawingMode) return;
+        // Check if the click is on the pane (the empty space)
+        if (e.target.classList.contains('react-flow__pane')) {
+          onPaneMouseDown(e);
+        }
+      }}
+      onMouseMove={(e) => {
+        if (!isDrawingMode) return;
+        onPaneMouseMove(e);
+      }}
+      onMouseUp={(e) => {
+        if (!isDrawingMode) return;
+        onPaneMouseUp(e);
+      }}
+    >
       <ReactFlow
         nodes={displayNodes}
         edges={edges}
@@ -448,12 +532,13 @@ const VoidContent = () => {
         onEdgesChange={onEdgesChange}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
-        onNodeResizeStop={onNodeResizeStop}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
-        onPaneMouseDown={onPaneMouseDown}
-        onPaneMouseMove={onPaneMouseMove}
-        onPaneMouseUp={onPaneMouseUp}
+        panOnDrag={!isDrawingMode}
+        nodesDraggable={!isDrawingMode}
+        selectionOnDrag={false}
+        panOnScroll={true}
+        zoomOnPinch={true}
         fitView
       >
         <Background color={isDeleteMode ? "#7f1d1d" : "#334155"} gap={20} />
@@ -461,17 +546,38 @@ const VoidContent = () => {
 
       {/* Drawing Toolbar */}
       <div className="absolute top-6 right-6 flex flex-col gap-3">
-        <div className="bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 flex flex-col gap-1 shadow-2xl">
-          <ToolButton active={activeTool === 'thought'} onClick={() => setActiveTool('thought')} icon="🧠" title="Thought Mode" />
+        <div className="bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 flex flex-col gap-1 shadow-2xl overflow-hidden">
+          <ToolButton active={activeTool === 'thought'} onClick={() => { setActiveTool('thought'); setIsDrawExpanded(false); }} icon="🧠" title="Thought Mode" />
           <div className="h-px bg-slate-700 mx-2 my-1" />
-          <ToolButton active={activeTool === 'rectangle'} onClick={() => setActiveTool('rectangle')} icon="▭" title="Rectangle" />
-          <ToolButton active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} icon="○" title="Circle" />
-          <ToolButton active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} icon="△" title="Triangle" />
-          <ToolButton active={activeTool === 'line'} onClick={() => setActiveTool('line')} icon="╱" title="Line" />
-          <ToolButton active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} icon="↗" title="Arrow" />
-          <ToolButton active={activeTool === 'text'} onClick={() => setActiveTool('text')} icon="T" title="Text Input" />
-          <ToolButton active={activeTool === 'freehand'} onClick={() => setActiveTool('freehand')} icon="✎" title="Freehand" />
-          <ToolButton active={activeTool === 'eraser'} onClick={() => setActiveTool('eraser')} icon="⌫" title="Eraser Tool" />
+          
+          <button 
+            onClick={() => {
+              const newExpanded = !isDrawExpanded;
+              setIsDrawExpanded(newExpanded);
+              if (newExpanded && activeTool === 'thought') {
+                setActiveTool('rectangle');
+              }
+            }}
+            className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+              isDrawingMode ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            }`}
+            title="Toggle Drawing Tools"
+          >
+            <span className="text-lg">{isDrawExpanded ? '▼' : '✎'}</span>
+          </button>
+
+          {isDrawExpanded && (
+            <div className="flex flex-col gap-1 pt-1 border-t border-slate-700/50 transition-all duration-300">
+              <ToolButton active={activeTool === 'rectangle'} onClick={() => setActiveTool('rectangle')} icon="▭" title="Rectangle" />
+              <ToolButton active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} icon="○" title="Circle" />
+              <ToolButton active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} icon="△" title="Triangle" />
+              <ToolButton active={activeTool === 'line'} onClick={() => setActiveTool('line')} icon="╱" title="Line" />
+              <ToolButton active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} icon="↗" title="Arrow" />
+              <ToolButton active={activeTool === 'text'} onClick={() => setActiveTool('text')} icon="T" title="Text Input" />
+              <ToolButton active={activeTool === 'freehand'} onClick={() => setActiveTool('freehand')} icon="✎" title="Freehand" />
+              <ToolButton active={activeTool === 'eraser'} onClick={() => setActiveTool('eraser')} icon="⌫" title="Eraser Tool" />
+            </div>
+          )}
         </div>
 
         <button 
