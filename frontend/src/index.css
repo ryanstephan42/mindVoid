@@ -63,6 +63,23 @@ html, body, #root {
   cursor: grabbing;
 }
 
+.drawing-active .react-flow__pane,
+.drawing-active .react-flow__pane * {
+  cursor: crosshair !important;
+}
+
+.drawing-active .react-flow__node,
+.drawing-active .react-flow__node * {
+  cursor: crosshair !important;
+  pointer-events: none !important;
+}
+
+.eraser-active .react-flow__node,
+.eraser-active .react-flow__node * {
+  pointer-events: all !important;
+  cursor: pointer !important;
+}
+
 .react-flow__handle {
   opacity: 0;
   top: 50% !important;

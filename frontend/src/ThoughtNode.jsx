@@ -12,13 +12,10 @@ const ThoughtNode = ({ id, data }) => {
     }
     
     const newValue = !data.needs_action;
-    
-    // Optimistic update - this relies on the parent component's state being updated via re-fetch or manual state sync
-    // But since data is passed down, we trigger the API and the parent should handle the state update.
-    // In VoidView.jsx, we'll implement the actual state update logic when we handle the click or after the PUT.
+    const rawId = id.split('-')[1];
     
     try {
-      await axios.put(`${API_BASE_URL}/thoughts/${id}`, {
+      await axios.put(`${API_BASE_URL}/thoughts/${rawId}`, {
         needs_action: newValue
       });
       // Trigger a refresh of the nodes in the parent
@@ -30,8 +27,9 @@ const ThoughtNode = ({ id, data }) => {
     }
   };
 
+  const numericId = parseInt(id.split('-')[1]) || 0;
   const floatClasses = ['floating-inner', 'floating-inner-alt', 'floating-inner-alt-2'];
-  const floatClass = floatClasses[parseInt(id) % floatClasses.length] || floatClasses[0];
+  const floatClass = floatClasses[numericId % floatClasses.length] || floatClasses[0];
 
   const baseStyle = { 
     background: '#fff', 
