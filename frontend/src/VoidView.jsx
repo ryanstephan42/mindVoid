@@ -8,6 +8,9 @@ import 'reactflow/dist/style.css';
 import api from './api';
 import ThoughtNode from './ThoughtNode';
 import ShapeNode from './ShapeNode';
+import SearchPalette from './SearchPalette';
+import TimelineScrubber from './TimelineScrubber';
+import ResurfacePanel from './ResurfacePanel';
 
 const nodeTypes = {
   thought: ThoughtNode,
@@ -34,7 +37,7 @@ const VoidContent = () => {
   const [isListening, setIsListening] = useState(false);
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [activeTool, setActiveTool] = useState('thought'); // 'thought', 'rectangle', 'circle', 'triangle', 'line', 'arrow', 'text', 'freehand', 'eraser'
-  const { fitView, screenToFlowPosition } = useReactFlow();
+  const { fitView, screenToFlowPosition, setCenter } = useReactFlow();
   
   const [editingNode, setEditingNode] = useState(null);
   const [editTitle, setEditTitle] = useState('');
@@ -44,9 +47,15 @@ const VoidContent = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedData, setHasLoadedData] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [isResurfaceOpen, setIsResurfaceOpen] = useState(false);
+  const [timelineWindow, setTimelineWindow] = useState(null);
+  const [focusedThoughtId, setFocusedThoughtId] = useState(null);
 
   const linkingTimer = useRef(null);
   const recognitionRef = useRef(null);
+  const focusTimer = useRef(null);
   const [linkingState, setLinkingState] = useState({ 
     sourceId: null, 
     targetId: null, 
@@ -93,6 +102,9 @@ const VoidContent = () => {
   useEffect(() => {
     if (isDrawingMode) {
       setIsDrawExpanded(true);
+      setIsSearchOpen(false);
+      setIsTimelineOpen(false);
+      setIsResurfaceOpen(false);
     }
   }, [isDrawingMode]);
 
@@ -100,7 +112,65 @@ const VoidContent = () => {
     return () => {
       if (linkingTimer.current) clearTimeout(linkingTimer.current);
       if (recognitionRef.current) recognitionRef.current.abort();
+      if (focusTimer.current) clearTimeout(focusTimer.current);
     };
+  }, []);
+
+  const closeRetrievalPanels = useCallback(() => {
+    setIsSearchOpen(false);
+    setIsTimelineOpen(false);
+    setIsResurfaceOpen(false);
+  }, []);
+
+  const openSearchPalette = useCallback(() => {
+    if (isDrawingMode) return;
+    setIsSearchOpen(true);
+    setIsTimelineOpen(false);
+    setIsResurfaceOpen(false);
+  }, [isDrawingMode]);
+
+  const toggleTimeline = useCallback(() => {
+    if (isDrawingMode) return;
+    setIsSearchOpen(false);
+    setIsResurfaceOpen(false);
+    setIsTimelineOpen((isOpen) => !isOpen);
+  }, [isDrawingMode]);
+
+  const toggleResurfacePanel = useCallback(() => {
+    if (isDrawingMode) return;
+    setIsSearchOpen(false);
+    setIsTimelineOpen(false);
+    setIsResurfaceOpen((isOpen) => !isOpen);
+  }, [isDrawingMode]);
+
+  const isThoughtInTimeline = useCallback((thought) => {
+    if (!timelineWindow) return true;
+    const createdAt = new Date(thought.created_at || 0).getTime();
+    if (!Number.isFinite(createdAt)) return true;
+    return createdAt >= timelineWindow.start && createdAt <= timelineWindow.end;
+  }, [timelineWindow]);
+
+  const jumpToThought = useCallback((thoughtOrId) => {
+    const thought = typeof thoughtOrId === 'object'
+      ? thoughtOrId
+      : rawThoughts.find((item) => item.id === thoughtOrId || `thought-${item.id}` === thoughtOrId);
+    if (!thought) return;
+
+    closeRetrievalPanels();
+    setCenter(thought.x_pos, thought.y_pos, { zoom: 1.35, duration: 800 });
+    const nodeId = `thought-${thought.id}`;
+    setFocusedThoughtId(nodeId);
+    setSelectedNodeIds([nodeId]);
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => {
+      setFocusedThoughtId(null);
+    }, 1800);
+  }, [closeRetrievalPanels, rawThoughts, setCenter]);
+
+  const handleThoughtSeen = useCallback((updatedThought) => {
+    setRawThoughts((thoughts) => thoughts.map((thought) => (
+      thought.id === updatedThought.id ? { ...thought, ...updatedThought } : thought
+    )));
   }, []);
 
   const onToggleNeedsAction = useCallback((id, newValue) => {
@@ -149,25 +219,40 @@ const VoidContent = () => {
   }, [showError]);
 
   const nodes = useMemo(() => {
-    const fetchedThoughts = rawThoughts.map((thought) => ({
-      id: `thought-${thought.id}`,
-      type: 'thought',
-      data: { 
-        title: thought.title,
-        content: thought.content,
-        needs_action: thought.needs_action,
-        isDeleteMode: isDeleteMode,
-        onToggleNeedsAction: onToggleNeedsAction,
-        is_locked: thought.is_locked,
-        isDrawingMode: isDrawingMode,
-        isBeingLinked: linkingState.isPending && (linkingState.sourceId === `thought-${thought.id}` || linkingState.targetId === `thought-${thought.id}`)
-      },
-      position: { x: thought.x_pos, y: thought.y_pos },
-      selected: selectedNodeIds.includes(`thought-${thought.id}`),
-      draggable: !isDrawingMode && !thought.is_locked,
-      zIndex: 1,
-      raw: thought
-    }));
+    const fetchedThoughts = rawThoughts.map((thought) => {
+      const nodeId = `thought-${thought.id}`;
+      const isFadedByTimeline = !isThoughtInTimeline(thought);
+      const isFocused = focusedThoughtId === nodeId;
+      return {
+        id: nodeId,
+        type: 'thought',
+        data: { 
+          title: thought.title,
+          content: thought.content,
+          needs_action: thought.needs_action,
+          isDeleteMode: isDeleteMode,
+          onToggleNeedsAction: onToggleNeedsAction,
+          is_locked: thought.is_locked,
+          isDrawingMode: isDrawingMode,
+          isBeingLinked: linkingState.isPending && (linkingState.sourceId === nodeId || linkingState.targetId === nodeId),
+          focusedThoughtId
+        },
+        position: { x: thought.x_pos, y: thought.y_pos },
+        selected: selectedNodeIds.includes(nodeId) || isFocused,
+        draggable: !isDrawingMode && !thought.is_locked && !isFadedByTimeline,
+        selectable: !isFadedByTimeline,
+        style: {
+          opacity: isFadedByTimeline ? 0.22 : 1,
+          pointerEvents: isFadedByTimeline ? 'none' : 'all',
+          filter: isFadedByTimeline ? 'grayscale(0.85)' : 'none',
+          boxShadow: isFocused ? '0 0 0 6px rgba(59, 130, 246, 0.35), 0 0 30px rgba(59, 130, 246, 0.65)' : undefined,
+          borderRadius: isFocused ? 24 : undefined,
+          transition: 'opacity 200ms ease, filter 200ms ease, box-shadow 200ms ease'
+        },
+        zIndex: isFocused ? 20 : 1,
+        raw: thought
+      };
+    });
 
     const fetchedDrawings = rawDrawings.map((drawing) => ({
       id: `drawing-${drawing.id}`,
@@ -194,18 +279,26 @@ const VoidContent = () => {
     }));
 
     return [...fetchedThoughts, ...fetchedDrawings];
-  }, [activeTool, handleNodeResizeStop, handleUpdateShapeText, isDeleteMode, isDrawingMode, linkingState, onToggleNeedsAction, rawDrawings, rawThoughts, selectedNodeIds]);
+  }, [activeTool, focusedThoughtId, handleNodeResizeStop, handleUpdateShapeText, isDeleteMode, isDrawingMode, isThoughtInTimeline, linkingState, onToggleNeedsAction, rawDrawings, rawThoughts, selectedNodeIds]);
 
-  const edges = useMemo(() => rawLinks.map((link) => ({
-    id: `e${link.id}`,
-    source: `thought-${link.source_id}`,
-    target: `thought-${link.target_id}`,
-    style: { 
-      stroke: isDeleteMode ? '#ef4444' : '#64748b',
-      strokeWidth: 6,
-      cursor: 'pointer'
-    }
-  })), [isDeleteMode, rawLinks]);
+  const edges = useMemo(() => rawLinks.map((link) => {
+    const sourceThought = rawThoughts.find((thought) => thought.id === link.source_id);
+    const targetThought = rawThoughts.find((thought) => thought.id === link.target_id);
+    const isFadedByTimeline = (sourceThought && !isThoughtInTimeline(sourceThought)) || (targetThought && !isThoughtInTimeline(targetThought));
+    return {
+      id: `e${link.id}`,
+      source: `thought-${link.source_id}`,
+      target: `thought-${link.target_id}`,
+      style: { 
+        stroke: isDeleteMode ? '#ef4444' : '#64748b',
+        strokeWidth: 6,
+        cursor: isFadedByTimeline ? 'default' : 'pointer',
+        opacity: isFadedByTimeline ? 0.18 : 1,
+        transition: 'opacity 200ms ease'
+      },
+      interactionWidth: isFadedByTimeline ? 0 : 20
+    };
+  }), [isDeleteMode, isThoughtInTimeline, rawLinks, rawThoughts]);
 
   const onNodesChange = useCallback((changes) => {
     const filteredChanges = changes.filter(change => {
@@ -553,13 +646,33 @@ const VoidContent = () => {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      const target = e.target;
+      const isTyping = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
+      const key = e.key.toLowerCase();
+
+      if ((e.ctrlKey || e.metaKey) && key === 'k' && !isTyping && !editingNode) {
+        e.preventDefault();
+        openSearchPalette();
+        return;
+      }
+
+      if (e.key === 'Escape' && (isSearchOpen || isTimelineOpen || isResurfaceOpen)) {
+        e.preventDefault();
+        closeRetrievalPanels();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && key === 'c') {
         const selectedNodes = nodes.filter(n => n.selected);
         if (selectedNodes.length > 0) {
           setClipboardNode(selectedNodes[0]);
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      if ((e.ctrlKey || e.metaKey) && key === 'v') {
         if (clipboardNode) {
           pasteNode(clipboardNode);
         }
@@ -567,7 +680,7 @@ const VoidContent = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nodes, clipboardNode, pasteNode]);
+  }, [clipboardNode, closeRetrievalPanels, editingNode, isResurfaceOpen, isSearchOpen, isTimelineOpen, nodes, openSearchPalette, pasteNode]);
 
   const displayNodes = useMemo(() => {
     const nextNodes = [...nodes];
@@ -695,6 +808,33 @@ const VoidContent = () => {
         </div>
       )}
 
+      {isTimelineOpen && (
+        <TimelineScrubber
+          thoughts={rawThoughts}
+          windowRange={timelineWindow}
+          onChange={setTimelineWindow}
+          onReset={() => setTimelineWindow(null)}
+          onClose={() => setIsTimelineOpen(false)}
+        />
+      )}
+
+      {isResurfaceOpen && (
+        <ResurfacePanel
+          links={rawLinks}
+          onClose={() => setIsResurfaceOpen(false)}
+          onJumpToThought={jumpToThought}
+          onThoughtSeen={handleThoughtSeen}
+        />
+      )}
+
+      {isSearchOpen && (
+        <SearchPalette
+          thoughts={rawThoughts}
+          onClose={closeRetrievalPanels}
+          onJumpToThought={jumpToThought}
+        />
+      )}
+
       {/* Drawing Toolbar */}
       <div className="absolute top-6 right-6 flex flex-col gap-3">
         <div className="bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 flex flex-col gap-1 shadow-2xl overflow-hidden">
@@ -730,6 +870,14 @@ const VoidContent = () => {
             </div>
           )}
         </div>
+
+        {!isDrawingMode && (
+          <div className="bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 flex flex-col gap-1 shadow-2xl overflow-hidden">
+            <ToolButton active={isSearchOpen} onClick={openSearchPalette} icon="⌕" title="Search Void (Ctrl+K)" />
+            <ToolButton active={isTimelineOpen || Boolean(timelineWindow)} onClick={toggleTimeline} icon="◴" title="Timeline Filter" />
+            <ToolButton active={isResurfaceOpen} onClick={toggleResurfacePanel} icon="↺" title="Resurface Thoughts" />
+          </div>
+        )}
 
         <button 
           onClick={() => fitView({ duration: 800 })}

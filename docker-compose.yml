@@ -11,6 +11,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/mindvoid.db}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3003,http://127.0.0.1:3003}
+      MINDVOID_PASSWORD: ${MINDVOID_PASSWORD:-}
+      MINDVOID_SECRET: ${MINDVOID_SECRET:-}
+      MINDVOID_TOKEN_TTL_HOURS: ${MINDVOID_TOKEN_TTL_HOURS:-720}
 
   frontend:
     build:
