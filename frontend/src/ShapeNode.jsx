@@ -29,6 +29,17 @@ const ShapeNode = ({ id, data, selected }) => {
     }
   };
 
+  const freehandViewBox = (() => {
+    if (type !== 'freehand' || !points || points.length < 2) return "0 0 100 100";
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const width = Math.max(1, Math.max(...xs) - minX);
+    const height = Math.max(1, Math.max(...ys) - minY);
+    return `${minX} ${minY} ${width} ${height}`;
+  })();
+
   const commonProps = {
     fill: 'none',
     stroke: color,
@@ -53,10 +64,11 @@ const ShapeNode = ({ id, data, selected }) => {
             <polygon points="100,0 80,5 95,20" fill={color} stroke="none" />
           </g>
         );
-      case 'freehand':
+      case 'freehand': {
         if (!points || points.length < 2) return null;
         const d = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
         return <path d={d} {...commonProps} />;
+      }
       default:
         return null;
     }
@@ -89,7 +101,7 @@ const ShapeNode = ({ id, data, selected }) => {
       <svg 
         width="100%" 
         height="100%" 
-        viewBox={type === 'freehand' ? undefined : "0 0 100 100"} 
+        viewBox={type === 'freehand' ? freehandViewBox : "0 0 100 100"} 
         preserveAspectRatio="none"
         style={{ overflow: 'visible', display: 'block' }}
       >

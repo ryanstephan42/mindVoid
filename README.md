@@ -61,18 +61,73 @@ Traditional note-taking apps often force a hierarchical or linear structure. **m
    cd mindvoid
    ```
 
-2. **Launch with Docker Compose:**
+2. **Launch the development stack with Docker Compose:**
    ```bash
-   docker-compose up --build
+   docker compose up --build
    ```
+   This uses the development Docker targets, starts the Vite dev server, and stores SQLite data in a named Docker volume.
 
 3. **Access the application:**
    - **Frontend:** [http://localhost:3003](http://localhost:3003)
    - **API Docs (Swagger):** [http://localhost:8000/docs](http://localhost:8000/docs)
 
+4. **Run the production-style stack:**
+   ```bash
+   docker compose -f docker-compose.prod.yml up --build
+   ```
+   The production compose file builds the backend without reload and serves the built frontend through nginx, with `/api` proxied to the backend service.
+
+## 🧑‍💻 Development without Docker
+
+### Backend
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server runs on port `3003`. Requests to `/api` are proxied to the backend target configured by `VITE_PROXY_TARGET`.
+
+## ⚙️ Configuration
+
+Copy `.env.example` when you want a local starting point for configuration.
+
+- `DATABASE_URL`: SQLAlchemy database URL. Docker defaults to `sqlite:////app/data/mindvoid.db` so the database persists in a named volume; the app fallback is `sqlite:///./mindvoid.db`.
+- `CORS_ORIGINS`: Comma-separated list of allowed frontend origins for the FastAPI backend.
+- `VITE_API_URL`: Frontend API base URL. Defaults to `/api` for Docker so nginx or Vite can proxy requests.
+- `VITE_ALLOWED_HOSTS`: Comma-separated host allowlist for the Vite dev server.
+- `VITE_PROXY_TARGET`: Backend target used by the Vite dev proxy for `/api`; defaults to `http://backend:8000` in Docker.
+
+## 🧪 Testing
+
+### Backend
+```bash
+cd backend
+pytest
+```
+
+### Frontend
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+GitHub Actions runs the backend tests and frontend lint/build checks on push and pull requests.
+
 ## 📖 Usage Tips
 
 - **Connecting Thoughts:** Drag a thought close to another and hold it for a moment in **Thought Mode** to trigger an automatic link.
+- **Removing Links:** Drag an already-linked pair together again to be prompted to remove the link.
 - **Organizing:** Use the right-hand toolbar to switch between thought mode and drawing tools.
 - **Editing Drawings:** While any drawing tool is active, you can select and resize existing shapes. Double-click text elements to edit them.
 - **Shortcut:** Use `Ctrl+C` and `Ctrl+V` to duplicate thoughts or drawings.

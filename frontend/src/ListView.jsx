@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-
-const API_BASE_URL = '/api';
+import api from './api';
 
 const ListView = () => {
   const [thoughts, setThoughts] = useState([]);
@@ -11,13 +9,14 @@ const ListView = () => {
   const [editingThought, setEditingThought] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [selectedLinksThought, setSelectedLinksThought] = useState(null);
   const [linkToDelete, setLinkToDelete] = useState(null);
 
   const fetchData = async () => {
     try {
       const [thoughtsRes, linksRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/thoughts/`),
-        axios.get(`${API_BASE_URL}/links/`)
+        api.get('/thoughts/'),
+        api.get('/links/')
       ]);
       setThoughts(thoughtsRes.data);
       setLinks(linksRes.data);
@@ -36,6 +35,15 @@ const ListView = () => {
     return links.filter(l => l.source_id === thoughtId || l.target_id === thoughtId).length;
   };
 
+  const getThoughtLinks = (thoughtId) => {
+    return links.filter(l => l.source_id === thoughtId || l.target_id === thoughtId);
+  };
+
+  const getThoughtLabel = (thoughtId) => {
+    const thought = thoughts.find(item => item.id === thoughtId);
+    return thought?.title || thought?.content || `Thought ${thoughtId}`;
+  };
+
   const handleEditClick = (thought) => {
     setEditingThought(thought);
     setEditTitle(thought.title || '');
@@ -44,7 +52,7 @@ const ListView = () => {
 
   const handleUpdateThought = async () => {
     try {
-      await axios.put(`${API_BASE_URL}/thoughts/${editingThought.id}`, {
+      await api.put(`/thoughts/${editingThought.id}`, {
         title: editTitle,
         content: editContent
       });
@@ -58,7 +66,7 @@ const ListView = () => {
   const handleDeleteLink = async () => {
     if (!linkToDelete) return;
     try {
-      await axios.delete(`${API_BASE_URL}/links/${linkToDelete.id}`);
+      await api.delete(`/links/${linkToDelete.id}`);
       setLinkToDelete(null);
       fetchData();
     } catch (error) {
@@ -92,7 +100,7 @@ const ListView = () => {
     
     if (sourceId && sourceId !== targetId.toString()) {
       try {
-        await axios.post(`${API_BASE_URL}/links/`, {
+        await api.post('/links/', {
           source_id: parseInt(sourceId),
           target_id: parseInt(targetId)
         });
@@ -147,12 +155,16 @@ const ListView = () => {
                         {new Date(thought.created_at).toLocaleDateString()}<br/>
                         {new Date(thought.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
-                      <td className="px-6 py-6 text-center">
-                        <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-bold ${
-                          getConnectionsCount(thought.id) > 0 ? 'bg-blue-900/50 text-blue-300 border border-blue-700' : 'bg-slate-700/50 text-slate-500'
-                        }`}>
+                      <td className="px-6 py-6 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLinksThought(thought)}
+                          className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-bold transition-colors ${
+                            getConnectionsCount(thought.id) > 0 ? 'bg-blue-900/50 text-blue-300 border border-blue-700 hover:bg-blue-800/60' : 'bg-slate-700/50 text-slate-500 hover:bg-slate-700'
+                          }`}
+                        >
                           {getConnectionsCount(thought.id)}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-6 py-6 text-slate-500 text-xs text-right font-mono">
                         {Math.round(thought.x_pos)}, {Math.round(thought.y_pos)}
@@ -198,6 +210,45 @@ const ListView = () => {
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingThought(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
               <button onClick={handleUpdateThought} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedLinksThought && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-white mb-4">Links for {selectedLinksThought.title || 'Untitled'}</h2>
+            <div className="space-y-3 max-h-80 overflow-auto">
+              {getThoughtLinks(selectedLinksThought.id).length === 0 ? (
+                <div className="text-slate-400">No links yet.</div>
+              ) : (
+                getThoughtLinks(selectedLinksThought.id).map((link) => {
+                  const otherId = link.source_id === selectedLinksThought.id ? link.target_id : link.source_id;
+                  return (
+                    <div key={link.id} className="flex items-center justify-between gap-4 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3">
+                      <div className="text-slate-200 truncate">{getThoughtLabel(otherId)}</div>
+                      <button onClick={() => setLinkToDelete(link)} className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm">Remove</button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="flex justify-end mt-6">
+              <button onClick={() => setSelectedLinksThought(null)} className="px-4 py-2 text-slate-400 hover:text-white">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-white mb-3">Remove Link?</h2>
+            <p className="text-slate-300">This will remove the selected link between thoughts.</p>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setLinkToDelete(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+              <button onClick={handleDeleteLink} className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg">Remove Link</button>
             </div>
           </div>
         </div>
