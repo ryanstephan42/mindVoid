@@ -2,11 +2,10 @@ services:
   backend:
     build:
       context: ./backend
-      target: dev
+      target: prod
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
       - backend_data:/app/data
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/mindvoid.db}
@@ -18,16 +17,13 @@ services:
   frontend:
     build:
       context: ./frontend
-      target: dev
+      target: prod
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+        VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://backend:8000}
     ports:
-      - "3003:3003"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      VITE_API_URL: ${VITE_API_URL:-/api}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1,dump.stephanfamily.com}
-      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://backend:8000}
+      - "3003:80"
     depends_on:
       - backend
 

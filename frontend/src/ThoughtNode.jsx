@@ -1,8 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import axios from 'axios';
-
-const API_BASE_URL = '/api';
+import api from './api';
 
 const ThoughtNode = ({ id, data }) => {
   const toggleNeedsAction = async (e) => {
@@ -15,7 +13,7 @@ const ThoughtNode = ({ id, data }) => {
     const rawId = id.split('-')[1];
     
     try {
-      await axios.put(`${API_BASE_URL}/thoughts/${rawId}`, {
+      await api.put(`/thoughts/${rawId}`, {
         needs_action: newValue
       });
       // Trigger a refresh of the nodes in the parent
